@@ -3,14 +3,18 @@ import re
 from supabase import create_client, Client
 
 # --- CONFIGURAÇÕES DE CONEXÃO ---
-# Substitua pelos seus dados do projeto no Supabase
+# Mantive suas chaves conforme fornecido
 SUPABASE_URL = "https://ntnkfecnbrvragfdahiu.supabase.co"
 SUPABASE_KEY = "sb_publishable_PtBIaH2XLw5xzvQiOL91Pg_iLt0HaHG"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def extrair_order_id(url):
-    """Extrai o ID (BR...) da URL do SPX Shopee"""
-    padrao = r"orderDetail/(BR[A-Z0-9]+)/"
+    """
+    Extrai o ID após 'orderDetail/'. 
+    Funciona para BR... e SPXBR...
+    """
+    # Padrao atualizado para capturar a variável entre barras após orderDetail
+    padrao = r"orderDetail/([A-Z0-9]+)/"
     resultado = re.search(padrao, url)
     return resultado.group(1) if resultado else None
 
@@ -33,65 +37,59 @@ st.title("📦 Sistema de Consulta Consolidada")
 st.markdown("---")
 
 # Entrada da URL
-url_input = st.text_input("Cole a URL do pedido SPX aqui:", placeholder="https://spx.shopee.com.br/...")
+url_input = st.text_input("Cole a URL do pedido SPX aqui:", placeholder="https://spx.shopee.com.br/#/orderDetail/...")
 
 if url_input:
     sku_extraido = extrair_order_id(url_input)
     
     if sku_extraido:
-        st.info(f"🔎 SKU Identificado: **{sku_extraido}**")
+        st.info(f"🔎 ID Identificado: **{sku_extraido}**")
         
         # Realiza a busca
         dados = buscar_dados_supabase(sku_extraido)
         
         if dados:
-            # Pegamos o primeiro resultado encontrado
             item = dados[0]
             
-            # Layout em colunas para os dados que o senhor solicitou
+            # Layout em colunas
             col1, col2, col3 = st.columns(3)
             
             with col1:
                 st.metric("Order ID", item.get('order_id'))
-                st.metric("Status", item.get('status'))
-                st.metric("Aging", f"{item.get('aging')} dias")
+                # Ajuste os campos abaixo conforme os nomes exatos das colunas no seu SQL
+                st.metric("Status", item.get('status_current', item.get('status')))
+                st.metric("Aging", f"{item.get('aging_days', item.get('aging'))} dias")
 
             with col2:
                 st.metric("Receive Time", item.get('receive_time'))
-                st.metric("Current Station", item.get('current_station'))
+                st.metric("Station Destination", item.get('station_destination', item.get('destination_hub')))
                 st.metric("Macro Aging", item.get('macro_aging'))
 
             with col3:
-                st.metric("Destination Hub", item.get('destination_hub'))
-                st.write("**Reason:**")
-                st.warning(item.get('reason'))
+                st.metric("Current Station", item.get('current_station'))
+                st.write("**Hub Reason:**")
+                st.warning(item.get('hub_reason', item.get('reason')))
 
             st.markdown("---")
             
-            # Botão para acessar o site diretamente
-            st.link_button(f"🔗 Abrir Pedido {sku_extraido} na Shopee", url_input)
+            # Botão para acessar o site diretamente usando a URL colada
+            st.link_button(f"🔗 Abrir Pedido {sku_extraido} no Painel SPX", url_input)
             
         else:
             st.error(f"O ID {sku_extraido} não foi encontrado na tabela 'Consolidado'.")
     else:
-        st.warning("A URL colada não contém um Order ID (BR) válido.")
+        st.warning("A URL colada não contém um Order ID válido.")
 
-# --- BARRA LATERAL ---
-with st.sidebar:
-    st.header("Status do Banco")
-    st.success("Conectado ao Supabase")
-    if st.button("Limpar Busca"):
-        st.rerun()
-
+# --- BARRA LATERAL UNIFICADA (Evita erro de DuplicateElementId) ---
 with st.sidebar:
     st.header("Recursos Externos")
-    # Substitua pelo link real da sua planilha 'Consolidado'
     url_planilha = "https://docs.google.com/spreadsheets/d/1HPJC9zVzijSQoKJyN7dmJ37AJWFHWzL_GIWDiEn_2Wc/edit?gid=0#gid=0"
-    
     st.link_button("📊 Abrir Planilha Consolidado", url_planilha)
     
     st.markdown("---")
-    st.header("Status do Banco")
+    st.header("Status do Sistema")
     st.success("Conectado ao Supabase")
-    if st.button("Limpar Busca"):
+    
+    # Adicionada uma chave única (key) para evitar conflitos se o script rodar duas vezes
+    if st.button("Limpar Busca", key="btn_limpar_principal"):
         st.rerun()
