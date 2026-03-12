@@ -86,7 +86,7 @@ with st.sidebar:
 with st.sidebar:
     st.header("Recursos Externos")
     # Substitua pelo link real da sua planilha 'Consolidado'
-    url_planilha = "https://docs.google.com/spreadsheets/d/1moMjDxAwcwIfDjuPC8jMY2CSJ90XytoVqSBAhWc-jo0/edit?gid=1806737988#gid=1806737988"
+    url_planilha = "https://docs.google.com/spreadsheets/d/1HPJC9zVzijSQoKJyN7dmJ37AJWFHWzL_GIWDiEn_2Wc/edit?gid=0#gid=0"
     
     st.link_button("📊 Abrir Planilha Consolidado", url_planilha)
     
