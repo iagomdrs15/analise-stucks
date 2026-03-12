@@ -4,8 +4,8 @@ from supabase import create_client, Client
 
 # --- CONFIGURAÇÕES DE CONEXÃO ---
 # Substitua pelos seus dados do projeto no Supabase
-SUPABASE_URL = "SUA_URL_AQUI"
-SUPABASE_KEY = "SUA_CHAVE_API_AQUI"
+SUPABASE_URL = "https://ntnkfecnbrvragfdahiu.supabase.co"
+SUPABASE_KEY = "sb_publishable_PtBIaH2XLw5xzvQiOL91Pg_iLt0HaHG"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def extrair_order_id(url):
