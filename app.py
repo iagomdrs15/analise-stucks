@@ -32,13 +32,20 @@ st.markdown("""
 def load_data():
     url = "https://docs.google.com/spreadsheets/d/1nZV5z9bPoBsi7Xi4PA_WMMQcry7eX1ljGA1c9iLVFW8/edit#gid=0"
     conn = st.connection("gsheets", type=GSheetsConnection)
+    
+    # ttl=120 garante que o cache expire em 2 minutos
     df = conn.read(spreadsheet=url, ttl=120)
     
+    # Limpar nomes de colunas
     df.columns = df.columns.str.strip()
     
-    # Converter a coluna de data para o formato datetime do pandas
-    # Ajuste o formato se a sua planilha usar DD/MM/YYYY
-    df['Data Recebimento'] = pd.to_datetime(df['Data Recebimento']).dt.date
+    # CORREÇÃO DO ERRO DE DATA:
+    # dayfirst=True força o Pandas a entender que 14/03 é 14 de Março, não erro.
+    df['Data Recebimento'] = pd.to_datetime(
+        df['Data Recebimento'], 
+        dayfirst=True, 
+        errors='coerce' # Se houver algo que não seja data, ele vira "NaT" em vez de quebrar o código
+    ).dt.date
     
     return df
 
