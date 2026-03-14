@@ -3,19 +3,24 @@ import pandas as pd
 import plotly.express as px
 from streamlit_gsheets import GSheetsConnection
 from streamlit_autorefresh import st_autorefresh
+from datetime import datetime
+import pytz
 
-# 1. Configuração da Página (Estilo Web App)
+# 1. Configuração da Página
 st.set_page_config(
     page_title="Dashboard SPX Express - Manaus",
     page_icon="📦",
     layout="wide"
 )
 
-# 2. Atualização Automática (A cada 2 minutos = 120.000 ms)
-# Isso faz o script rodar novamente e disparar a atualização dos dados
+# Definir Fuso Horário de Brasília
+fuso_br = pytz.timezone('America/Sao_Paulo')
+hoje_br = datetime.now(fuso_br).date()
+
+# 2. Atualização Automática (2 minutos)
 st_autorefresh(interval=120000, key="auto_refresh_dashboard")
 
-# 3. Estilização CSS para aproximar ao visual da imagem (Opcional)
+# 3. Estilização CSS
 st.markdown("""
     <style>
     .main { background-color: #f5f7f9; }
@@ -23,88 +28,104 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 4. Conexão com Google Sheets
+# 4. Conexão e Carga de Dados
 def load_data():
-    # Substitua pelo link real da sua planilha
     url = "https://docs.google.com/spreadsheets/d/1nZV5z9bPoBsi7Xi4PA_WMMQcry7eX1ljGA1c9iLVFW8/edit#gid=0"
-    
     conn = st.connection("gsheets", type=GSheetsConnection)
-    
-    # ttl=120 garante que o cache expire em 2 minutos, forçando a leitura de novos dados
     df = conn.read(spreadsheet=url, ttl=120)
     
-    # Garantir que os nomes das colunas não tenham espaços extras
     df.columns = df.columns.str.strip()
+    
+    # Converter a coluna de data para o formato datetime do pandas
+    # Ajuste o formato se a sua planilha usar DD/MM/YYYY
+    df['Data Recebimento'] = pd.to_datetime(df['Data Recebimento']).dt.date
+    
     return df
 
-# Tentativa de carregamento
 try:
-    df = load_data()
+    df_base = load_data()
+
+    # --- BARRA LATERAL (FILTROS) ---
+    st.sidebar.header("🗓️ Filtro de Período")
+    
+    # Filtro de data que já inicia no dia de hoje
+    data_selecionada = st.sidebar.date_input(
+        "Selecione a Data de Recebimento",
+        value=hoje_br
+    )
+
+    st.sidebar.divider()
+    st.sidebar.header("🚚 Logística")
+    
+    lista_transportadora = st.sidebar.multiselect(
+        "Transportadora 3PL", 
+        options=df_base['Transportadora 3PL'].unique(),
+        default=df_base['Transportadora 3PL'].unique()
+    )
+
+    # --- FILTRAGEM DOS DADOS ---
+    # Filtra pela data selecionada E pela transportadora
+    mask = (df_base['Data Recebimento'] == data_selecionada) & \
+           (df_base['Transportadora 3PL'].isin(lista_transportadora))
+    
+    df_filtrado = df_base[mask]
 
     # --- HEADER ---
     col_logo, col_titulo = st.columns([1, 4])
     with col_logo:
-        st.image("https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR_xN...", width=150) # Link fictício da logo SPX
+        st.image("https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR_xN...", width=150)
     with col_titulo:
-        st.title("Recebimento de On-holds - LAM 02 Manaus")
-        st.info(f"🕒 Atualizado automaticamente em: {pd.Timestamp.now().strftime('%H:%M:%S')}")
+        st.title(f"On-holds - LAM 02 Manaus")
+        # Mostra o horário de Brasília atualizado
+        agora_br = datetime.now(fuso_br).strftime('%H:%M:%S')
+        st.info(f"🕒 Horário Brasília: {agora_br} | Visualizando: {data_selecionada.strftime('%d/%m/%Y')}")
 
-    # --- FILTROS ---
-    st.sidebar.header("Painel de Controle")
-    lista_transportadora = st.sidebar.multiselect(
-        "Transportadora 3PL", 
-        options=df['Transportadora 3PL'].unique(),
-        default=df['Transportadora 3PL'].unique()
-    )
-
-    # Filtragem dos dados
-    mask = (df['Transportadora 3PL'].isin(lista_transportadora))
-    df_filtrado = df[mask]
-
-    # --- KPIs (Cards do Topo) ---
+    # --- KPIs ---
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.metric("Qtd Insucessos", len(df_filtrado))
+        st.metric("Qtd Insucessos (Dia)", len(df_filtrado))
     with c2:
-        st.metric("Drivers", df_filtrado['Driver ID'].nunique())
+        st.metric("Drivers Ativos", df_filtrado['Driver ID'].nunique())
     with c3:
-        # Exemplo de cálculo: Motivos mais comuns
-        motivo_top = df_filtrado['Motivo do APP'].mode()[0] if not df_filtrado.empty else "N/A"
+        if not df_filtrado.empty:
+            motivo_top = df_filtrado['Motivo do APP'].mode()[0]
+        else:
+            motivo_top = "Sem dados"
         st.metric("Motivo Principal", motivo_top)
 
     st.divider()
 
-    # --- GRÁFICOS (MEIO) ---
-    g1, g2 = st.columns(2)
+    # --- GRÁFICOS ---
+    if df_filtrado.empty:
+        st.warning(f"Não foram encontrados dados para o dia {data_selecionada.strftime('%d/%m/%Y')}.")
+    else:
+        g1, g2 = st.columns(2)
 
-    with g1:
-        st.subheader("Top 10 insucessos por motorista")
-        # Gráfico de Rosca (Donut)
-        fig_donut = px.pie(
-            df_filtrado, 
-            names='Motorista', 
-            hole=0.6,
-            color_discrete_sequence=px.colors.qualitative.Pastel
-        )
-        st.plotly_chart(fig_donut, use_container_width=True)
+        with g1:
+            st.subheader("Top 10 insucessos por motorista")
+            fig_donut = px.pie(
+                df_filtrado, 
+                names='Motorista', 
+                hole=0.6,
+                color_discrete_sequence=px.colors.qualitative.T10
+            )
+            st.plotly_chart(fig_donut, use_container_width=True)
 
-    with g2:
-        st.subheader("Insucessos por Bairro")
-        # Gráfico de Barras / Linhas conforme sua imagem
-        bairros = df_filtrado['Bairro'].value_counts().reset_index()
-        fig_bar = px.bar(
-            bairros, 
-            x='Bairro', 
-            y='count', 
-            text_auto=True,
-            color_discrete_sequence=['#ef4444'] # Vermelho SPX
-        )
-        st.plotly_chart(fig_bar, use_container_width=True)
+        with g2:
+            st.subheader("Insucessos por Bairro")
+            bairros = df_filtrado['Bairro'].value_counts().reset_index()
+            fig_bar = px.bar(
+                bairros, 
+                x='Bairro', 
+                y='count', 
+                text_auto=True,
+                color_discrete_sequence=['#E65100'] # Laranja SPX
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
 
-    # --- TABELA DETALHADA ---
-    st.subheader("Base de Dados em Tempo Real")
-    st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+        # --- TABELA ---
+        st.subheader("Detalhamento dos Dados")
+        st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"Erro ao conectar com a planilha: {e}")
-    st.info("Certifique-se de que a planilha está compartilhada como 'Qualquer pessoa com o link' ou configurada corretamente no secrets.")
+    st.error(f"Erro: {e}")
