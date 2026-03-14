@@ -26,7 +26,7 @@ st.markdown("""
 # 4. Conexão com Google Sheets
 def load_data():
     # Substitua pelo link real da sua planilha
-    url = "https://docs.google.com/spreadsheets/d/SEU_ID_AQUI/edit#gid=0"
+    url = "https://docs.google.com/spreadsheets/d/1nZV5z9bPoBsi7Xi4PA_WMMQcry7eX1ljGA1c9iLVFW8/edit#gid=0"
     
     conn = st.connection("gsheets", type=GSheetsConnection)
     
