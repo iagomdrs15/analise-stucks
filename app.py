@@ -8,7 +8,7 @@ import pytz
 
 # 1. Configuração da Página
 st.set_page_config(
-    page_title="Monitoramento SPX - Manaus",
+    page_title="Gestão SPX - Manaus",
     page_icon="📊",
     layout="wide"
 )
@@ -20,137 +20,111 @@ hoje_br = datetime.now(fuso_br).date()
 # Atualização Automática (2 min)
 st_autorefresh(interval=120000, key="auto_refresh_dashboard")
 
-# 4. Conexão e Carga de Dados
+# 2. Conexão e Carga de Dados
 def load_data():
     url = "https://docs.google.com/spreadsheets/d/1nZV5z9bPoBsi7Xi4PA_WMMQcry7eX1ljGA1c9iLVFW8/edit#gid=0"
     conn = st.connection("gsheets", type=GSheetsConnection)
     df = conn.read(spreadsheet=url, ttl=120)
-    
     df.columns = df.columns.str.strip()
     
-    # Correção Robusta de Data
+    # Tratamento de Data
     df['Data Recebimento'] = pd.to_datetime(
         df['Data Recebimento'], 
         dayfirst=True, 
         errors='coerce'
     ).dt.date
-    
     return df
 
 try:
     df_base = load_data()
 
-    # --- BARRA LATERAL ---
+    # --- BARRA LATERAL (Filtros Globais) ---
     st.sidebar.header("🗓️ Filtro de Período")
-    
-    # CONFIGURAÇÃO DE RANGE: Inicia com os últimos 7 dias até hoje
     sete_dias_atras = hoje_br - timedelta(days=7)
-    
-    range_datas = st.sidebar.date_input(
-        "Selecione o Intervalo",
-        value=(sete_dias_atras, hoje_br),
-        max_value=hoje_br
-    )
+    range_datas = st.sidebar.date_input("Intervalo", value=(sete_dias_atras, hoje_br), max_value=hoje_br)
 
     st.sidebar.divider()
     st.sidebar.header("🚚 Filtros de Operação")
-    
-    lista_transportadora = st.sidebar.multiselect(
-        "Transportadora 3PL", 
-        options=df_base['Transportadora 3PL'].unique(),
-        default=df_base['Transportadora 3PL'].unique()
-    )
+    lista_3pl = st.sidebar.multiselect("Transportadora 3PL", options=df_base['Transportadora 3PL'].unique(), default=df_base['Transportadora 3PL'].unique())
 
-    # --- LÓGICA DE FILTRAGEM POR RANGE ---
+    # Lógica de Filtro Temporal
     if len(range_datas) == 2:
-        data_inicio, data_fim = range_datas
-        mask = (df_base['Data Recebimento'] >= data_inicio) & \
-               (df_base['Data Recebimento'] <= data_fim) & \
-               (df_base['Transportadora 3PL'].isin(lista_transportadora))
-        texto_periodo = f"de {data_inicio.strftime('%d/%m/%Y')} até {data_fim.strftime('%d/%m/%Y')}"
+        d_ini, d_fim = range_datas
+        mask = (df_base['Data Recebimento'] >= d_ini) & (df_base['Data Recebimento'] <= d_fim) & (df_base['Transportadora 3PL'].isin(lista_3pl))
+        df_f = df_base[mask]
+        texto_p = f"{d_ini.strftime('%d/%m/%Y')} - {d_fim.strftime('%d/%m/%Y')}"
     else:
-        # Enquanto o usuário não seleciona a segunda data do range, não filtra por data
-        mask = (df_base['Transportadora 3PL'].isin(lista_transportadora))
-        texto_periodo = "Selecione a data final no calendário"
+        df_f = df_base[df_base['Transportadora 3PL'].isin(lista_3pl)]
+        texto_p = "Selecione o intervalo completo"
 
-    df_filtrado = df_base[mask]
+    # --- HEADER PRINCIPAL ---
+    st.title("📊 Painel de Operações | SPX Manaus")
+    agora = datetime.now(fuso_br).strftime('%H:%M:%S')
+    st.caption(f"🕒 Atualizado: {agora} | Período: {texto_p}")
 
-    # --- HEADER ---
-    st.title("📊 Gestão de On-holds | LAM 02 Manaus")
-    agora_br = datetime.now(fuso_br).strftime('%H:%M:%S')
-    st.info(f"🕒 Atualização automática (2min) | Brasília: {agora_br} | Período: {texto_periodo}")
+    # --- CRIAÇÃO DAS ABAS ---
+    tab_onhold, tab_prod = st.tabs(["🚫 On Hold", "📈 Produtividade"])
 
-    # --- MÉTRICAS (KPIs) ---
-    c1, c2, c3, c4 = st.columns(4)
-    
-    with c1:
-        if not df_filtrado.empty:
-            ofensores = df_filtrado['Motorista'].value_counts()
-            top_motorista = ofensores.index[0]
-            top_valor = ofensores.iloc[0]
-            st.metric("Líder de Insucessos", f"{top_motorista}", f"{top_valor} total", delta_color="inverse")
+    # ==========================================
+    # ABA 1: ON HOLD
+    # ==========================================
+    with tab_onhold:
+        if df_f.empty:
+            st.warning("Sem dados para o período.")
         else:
-            st.metric("Líder de Insucessos", "N/A")
+            c1, c2, c3 = st.columns(3)
+            with c1: st.metric("Total On Holds", len(df_f))
+            with c2: 
+                top_motivo = df_f['Motivo do APP'].mode()[0] if not df_f.empty else "N/A"
+                st.metric("Gargalo Principal", top_motivo)
+            with c3: st.metric("Bairros com Problemas", df_f['Bairro'].nunique())
 
-    with c2:
-        st.metric("Total de Insucessos", len(df_filtrado))
-    with c3:
-        st.metric("Drivers Únicos no Período", df_filtrado['Driver ID'].nunique())
-    with c4:
-        st.metric("Bairros Atendidos", df_filtrado['Bairro'].nunique())
+            st.divider()
+            g1, g2 = st.columns(2)
+            with g1:
+                st.subheader("Maiores Ofensores (Motoristas)")
+                ofensores = df_f['Motorista'].value_counts().head(10).reset_index()
+                st.plotly_chart(px.bar(ofensores, x='count', y='Motorista', orientation='h', text_auto=True, color='count', color_continuous_scale='Reds'), use_container_width=True)
+            with g2:
+                st.subheader("Distribuição por Motivo")
+                st.plotly_chart(px.pie(df_f['Motivo do APP'].value_counts().reset_index(), values='count', names='Motivo do APP', hole=0.4), use_container_width=True)
 
-    st.divider()
+    # ==========================================
+    # ABA 2: PRODUTIVIDADE
+    # ==========================================
+    with tab_prod:
+        if df_f.empty:
+            st.warning("Sem dados para o período.")
+        else:
+            st.subheader("Performance Geral da Operação")
+            
+            # KPIs de Produtividade
+            p1, p2, p3 = st.columns(3)
+            with p1:
+                total_pedidos = len(df_f) # Aqui você pode ajustar se tiver uma coluna de total geral
+                st.metric("Volume Processado", total_pedidos)
+            with p2:
+                st.metric("Média Pedidos/Dia", round(len(df_f) / ((d_fim - d_ini).days + 1), 1))
+            with p3:
+                st.metric("Drivers Ativos", df_f['Driver ID'].nunique())
 
-    if df_filtrado.empty:
-        st.warning("Nenhum dado encontrado para este intervalo.")
-    elif len(range_datas) < 2:
-        st.info("Por favor, selecione a data final no calendário lateral para completar o intervalo.")
-    else:
-        # --- GRÁFICOS ---
-        g1, g2 = st.columns(2)
+            st.divider()
+            
+            # Gráfico de Volume por Transportadora
+            st.subheader("Volume por Transportadora 3PL")
+            transp_vol = df_f['Transportadora 3PL'].value_counts().reset_index()
+            fig_transp = px.bar(transp_vol, x='Transportadora 3PL', y='count', color='Transportadora 3PL', text_auto=True, title="Total de Atendimentos por Parceiro")
+            st.plotly_chart(fig_transp, use_container_width=True)
 
-        with g1:
-            st.subheader(f"🏆 Maiores Ofensores no Período")
-            ofensores_df = df_filtrado['Motorista'].value_counts().head(10).reset_index()
-            fig_ofensores = px.bar(
-                ofensores_df, 
-                x='count', 
-                y='Motorista', 
-                orientation='h',
-                text_auto=True,
-                color='count',
-                color_continuous_scale='Reds'
-            )
-            fig_ofensores.update_layout(yaxis={'categoryorder':'total ascending'})
-            st.plotly_chart(fig_ofensores, use_container_width=True)
+            # Ranking de Motoristas mais produtivos (baseado em registros)
+            st.subheader("Ranking de Atividade por Motorista")
+            rank_mot = df_f['Motorista'].value_counts().head(15).reset_index()
+            fig_rank = px.bar(rank_mot, x='Motorista', y='count', text_auto=True, color_discrete_sequence=['#1A237E'])
+            st.plotly_chart(fig_rank, use_container_width=True)
 
-        with g2:
-            st.subheader("🚨 Ocorrências por Motivo")
-            motivos_df = df_filtrado['Motivo do APP'].value_counts().reset_index()
-            fig_motivos = px.pie(
-                motivos_df, 
-                values='count', 
-                names='Motivo do APP', 
-                hole=0.4,
-                color_discrete_sequence=px.colors.qualitative.Bold
-            )
-            st.plotly_chart(fig_motivos, use_container_width=True)
-
-        # Gráfico de evolução temporal (Novo, útil para ranges)
-        st.subheader("📈 Evolução Diária de Insucessos")
-        evolucao_df = df_filtrado['Data Recebimento'].value_counts().reset_index().sort_values('Data Recebimento')
-        fig_evolucao = px.line(
-            evolucao_df, 
-            x='Data Recebimento', 
-            y='count', 
-            markers=True,
-            color_discrete_sequence=['#1A237E']
-        )
-        st.plotly_chart(fig_evolucao, use_container_width=True)
-
-        # --- TABELA ---
-        st.subheader("📄 Lista Detalhada")
-        st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+    # --- TABELA GLOBAL (FORA DAS ABAS OU DENTRO DE UMA SE EXISTIR) ---
+    with st.expander("🔍 Visualizar Base de Dados Completa"):
+        st.dataframe(df_f, use_container_width=True, hide_index=True)
 
 except Exception as e:
     st.error(f"Erro Crítico: {e}")
