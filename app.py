@@ -77,7 +77,7 @@ try:
     # MÓDULO: ON HOLD (RESTAURADO)
     # ==========================================
     if st.session_state.segmento == "On Hold":
-        st.title("🚫 Gestão de On-holds | LAM 02")
+        st.title("🚫 Recebimento de On-holds | LAM-02")
         st.info(f"🕒 Atualização: {datetime.now(fuso_br).strftime('%H:%M:%S')} | Período: {texto_p}")
 
         if df_f.empty:
